@@ -21,8 +21,9 @@ The `check` job runs `check` and, unless a pull request for `update/<version>`
 already exists, `pin`. The `validate` job runs `apply` and `validate` with a
 read-only token. It is the only job that should run anything from the new
 version. The `publish` job runs `apply` on a fresh checkout and opens the pull
-request with the changed tracked files. Since it has a write token, `apply` must
-not run anything from the new version either.
+request with the changed tracked files. `apply` runs there before the token is
+used, but must not run anything from the new version either, since that could
+change what gets committed.
 
 The caller needs to grant `contents: write`, `pull-requests: write` and
 `actions: write`. The last one is for `ci-workflow`, which runs CI on the new
@@ -50,13 +51,16 @@ jobs:
 
 The commands run with bash in the caller's checkout. `$WORKFLOWS_DIR` points at
 this repository at the commit being run, for the helpers below. The other inputs
-are described in the workflow.
+are described in the workflow. If you pass `container`, pin it by digest.
 
 ## Arch packages
 
 `arch-ci.yml` lints, builds and installs the PKGBUILD in an
 `archlinux:base-devel` container. `arch-update.yml` runs `update.yml` with the
-scripts in [`arch`](arch). The package repo provides:
+scripts in [`arch`](arch). The image is pinned by digest in both and has to be
+bumped by hand, as Dependabot does not update images in workflows.
+
+The package repo provides:
 
 - `.github/scripts/upstream.sh latest`, which prints the newest upstream
   version.

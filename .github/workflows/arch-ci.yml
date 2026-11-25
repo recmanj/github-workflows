@@ -4,10 +4,13 @@ name: Arch package CI
 on:
   workflow_call:
 
+permissions: {}
+
 jobs:
   validate:
     runs-on: ubuntu-latest
-    container: archlinux:base-devel
+    # Same image as arch-update.yml
+    container: archlinux:base-devel-20261122.0.629543@sha256:949ecb1661609ab7e8f6854ba03efd62792e7a796313738e94b040c095c20d91
     timeout-minutes: 60
     permissions:
       contents: read

@@ -13,16 +13,21 @@ on:
         type: string
         default: ci.yml
 
+permissions: {}
+
 jobs:
   update:
     uses: $/.github/workflows/update.yml
     permissions:
-      contents: write
+      contents: write # see update.yml
       pull-requests: write
       actions: write
     with:
-      container: archlinux:base-devel
-      setup: pacman -Syu --noconfirm --needed git github-cli
+      # Updated by hand, Dependabot does not handle images in workflows
+      container: archlinux:base-devel-20261122.0.629543@sha256:949ecb1661609ab7e8f6854ba03efd62792e7a796313738e94b040c095c20d91
+      setup: >-
+        pacman -Sy --noconfirm --needed archlinux-keyring &&
+        pacman -Su --noconfirm --needed git github-cli
       check: '"$WORKFLOWS_DIR"/arch/check.sh'
       pin: .github/scripts/upstream.sh sums "$VERSION"
       apply: '"$WORKFLOWS_DIR"/arch/bump.sh "$VERSION" "$PIN"'

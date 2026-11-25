@@ -53,6 +53,8 @@ on:
         type: string
         default: ''
 
+permissions: {}
+
 defaults:
   run:
     shell: bash
@@ -64,11 +66,11 @@ defaults:
 jobs:
   check:
     runs-on: ${{ inputs.runs-on }}
-    container: ${{ inputs.container }}
+    container: ${{ inputs.container }} # zizmor: ignore[unpinned-images] the caller pins it
     timeout-minutes: 15
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: read # look up existing update PRs
     outputs:
       version: ${{ steps.check.outputs.version }}
       pin: ${{ steps.check.outputs.pin }}
@@ -131,7 +133,7 @@ jobs:
     needs: check
     if: needs.check.outputs.version != ''
     runs-on: ${{ inputs.runs-on }}
-    container: ${{ inputs.container }}
+    container: ${{ inputs.container }} # zizmor: ignore[unpinned-images] the caller pins it
     timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
@@ -165,12 +167,12 @@ jobs:
   publish:
     needs: [check, validate]
     runs-on: ${{ inputs.runs-on }}
-    container: ${{ inputs.container }}
+    container: ${{ inputs.container }} # zizmor: ignore[unpinned-images] the caller pins it
     timeout-minutes: 15
     permissions:
-      contents: write
-      pull-requests: write
-      actions: write
+      contents: write # push the update branch
+      pull-requests: write # open the PR
+      actions: write # run ci-workflow on the branch
     steps:
       - name: Set up
         if: inputs.setup != ''
@@ -178,7 +180,10 @@ jobs:
           SETUP: ${{ inputs.setup }}
         run: eval "$SETUP"
 
+      # apply runs without the token, which only the next step gets
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: $/.github/actions/scripts
 
@@ -212,7 +217,10 @@ jobs:
             exit 1
           fi
           git commit -m "$title"
-          git push --force origin "$branch"
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          git -c "http.$GITHUB_SERVER_URL/.extraheader=AUTHORIZATION: basic $auth" \
+            push --force origin "$branch"
           gh pr create --base "$BASE" --head "$branch" --title "$title" --body "$body"
           if [[ -n $CI_WORKFLOW ]]; then
             gh workflow run "$CI_WORKFLOW" --ref "$branch"

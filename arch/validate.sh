@@ -4,15 +4,17 @@
 # that later publishes from the workspace.
 #
 # Optional hooks in the package repo:
-#   keys/pgp/*.asc               keys for validpgpkeys
-#   .github/scripts/upstream.sh  `sums VERSION` must match the PKGBUILD
+#   keys/pgp/*.asc                 keys for validpgpkeys
+#   .github/scripts/upstream.sh    `sums VERSION` must match the PKGBUILD
 #   .github/scripts/smoke-test.sh  run as root after installing the package
 set -euo pipefail
 shopt -s nullglob
 
 scripts=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
-pacman -Syu --noconfirm --needed namcap shellcheck
+# The keyring goes first so that an older image can verify the packages
+pacman -Sy --noconfirm --needed archlinux-keyring
+pacman -Su --noconfirm --needed namcap shellcheck
 
 # Dependencies that are not in the repos, such as other AUR packages, are left
 # out. The build then skips dependency checks and the install ignores them.
@@ -89,7 +91,7 @@ fi
 BUILD
 
 echo '::group::Install'
-# -dd skips the dependencies left out above
+# -dd because of the dependencies left out above
 pacman -U --noconfirm ${missing:+-dd} ./*.pkg.tar
 echo '::endgroup::'
 

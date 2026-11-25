@@ -4,4 +4,6 @@ runs:
   using: composite
   steps:
     - shell: bash
-      run: echo "WORKFLOWS_DIR=$(cd "$GITHUB_ACTION_PATH/../../.." && pwd)" >> "$GITHUB_ENV"
+      # The value is the runner's own path, not something a caller controls
+      run: | # zizmor: ignore[github-env]
+        echo "WORKFLOWS_DIR=$(cd "$GITHUB_ACTION_PATH/../../.." && pwd)" >> "$GITHUB_ENV"
