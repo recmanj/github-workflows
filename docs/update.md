@@ -30,8 +30,8 @@ jobs:
 ## Jobs
 
 `check` runs the `check` command. If it prints a version and no pull request
-from `update/<version>` exists yet, in any state, it runs `apply` and saves the
-diff of the tracked files.
+from `update/<version>` exists yet, in any state and against any branch, it runs
+`apply` and saves the diff of the tracked files.
 
 `validate` applies that diff to a fresh checkout and runs `validate` with a
 read-only token. It is the only job that should run anything from the new

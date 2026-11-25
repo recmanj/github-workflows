@@ -85,7 +85,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          BASE: ${{ github.ref_name }}
           CHECK: ${{ inputs.check }}
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -101,12 +100,13 @@ jobs:
             exit 1
           fi
 
-          # A PR in any state means this version was handled. A branch without
+          # A PR in any state and against any branch means this version was
+          # handled, and publish would overwrite its branch. A branch without
           # a PR is left over from a failed run and gets overwritten. Matching
           # on owner:branch leaves out fork PRs, which anyone can open from a
           # branch with this name.
           if [[ -n $(gh api -X GET "repos/$GH_REPO/pulls" -f head="${GH_REPO%%/*}:$branch" \
-            -f base="$BASE" -f state=all --jq '.[].number') ]]; then
+            -f state=all --jq '.[].number') ]]; then
             echo "PR for $branch already exists, skipping"
             exit 0
           fi
