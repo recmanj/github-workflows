@@ -1,6 +1,6 @@
 name: Arch package CI
 
-# Validates a PKGBUILD repo, see README.md
+# See docs/arch-ci.md
 on:
   workflow_call:
 

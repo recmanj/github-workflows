@@ -1,6 +1,6 @@
 name: Arch package update
 
-# Update workflow for a PKGBUILD repo, see README.md
+# See docs/arch-update.md
 on:
   workflow_call:
     inputs:
