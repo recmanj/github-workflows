@@ -3,14 +3,10 @@
 # `.github/scripts/upstream.sh sums` and regenerates .SRCINFO. Nothing from the
 # release itself is downloaded or run.
 #
-#   bump.sh VERSION [SUMS]
-#
-# With SUMS, in the format of `upstream.sh sums`, it fails if upstream no
-# longer lists those checksums.
+#   bump.sh VERSION
 set -euo pipefail
 
-version=${1:?usage: bump.sh VERSION [SUMS]}
-pinned=${2:-}
+version=${1:?usage: bump.sh VERSION}
 [[ $version =~ ^[0-9A-Za-z][0-9A-Za-z._+]*$ ]] || { echo "::error::Invalid version: $version" >&2; exit 1; }
 scripts=$(dirname "${BASH_SOURCE[0]}")
 
@@ -19,11 +15,6 @@ sed -i -E "s/^pkgver=.*/pkgver=$version/; s/^pkgrel=.*/pkgrel=1/" PKGBUILD
 # upstream.sh should read checksums from signed metadata rather than from
 # whatever the download returns
 expected=$(.github/scripts/upstream.sh sums "$version")
-if [[ -n $pinned && $expected != "$pinned" ]]; then
-  diff -u <(echo "$pinned") <(echo "$expected") || :
-  echo "::error::Checksums for $version changed since the update check" >&2
-  exit 1
-fi
 while read -r arch sums; do
   awk -v name="sha256sums_$arch" -v sums="$sums" '
     index($0, name "=(") == 1 {

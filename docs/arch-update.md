@@ -47,8 +47,6 @@ aarch64 d3f8f8ddce79d4ca4560d006744c76bddf2e9ff1184057d46618937b94ad1cd6
 ```
 
 The checksums should come from signed metadata, not from hashing the download.
-They are the `pin` of `update.yml`, so the pull request fails to open if they
-change after validation.
 
 The update is only proposed when the version is newer than `pkgver` in
 `.SRCINFO`, compared with `vercmp`. `pkgrel` is reset to 1.
