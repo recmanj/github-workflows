@@ -39,8 +39,9 @@ version.
 
 `publish` applies the same diff to another fresh checkout, commits it to
 `update/<version>` and opens a pull request against the branch the workflow ran
-on. It is the only job with a write token, and it runs no command from the
-caller other than `setup`.
+on. Open pull requests from other `update/` branches against the same branch
+are closed as superseded and their branches deleted. `publish` is the only job
+with a write token, and it runs no command from the caller other than `setup`.
 
 So the pull request contains exactly what `validate` tested. `apply` should
 still not run anything from the new version, as `check` has a token, if only a

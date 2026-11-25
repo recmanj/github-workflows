@@ -219,7 +219,18 @@ jobs:
           echo "::add-mask::$auth"
           git -c "http.$GITHUB_SERVER_URL/.extraheader=AUTHORIZATION: basic $auth" \
             push --force origin "$branch"
-          gh pr create --base "$BASE" --head "$branch" --title "$title" --body "$body"
+          url=$(gh pr create --base "$BASE" --head "$branch" --title "$title" --body "$body")
+          echo "$url"
           if [[ -n $CI_WORKFLOW ]]; then
             gh workflow run "$CI_WORKFLOW" --ref "$branch"
           fi
+
+          # Close the update PRs this one replaces, like Dependabot does
+          gh pr list --base "$BASE" --state open --json number,headRefName,isCrossRepository \
+            --jq '.[] | select(.isCrossRepository | not) | select(.headRefName | startswith("update/"))
+              | "\(.number) \(.headRefName)"' |
+            while read -r number head; do
+              if [[ $head != "$branch" ]]; then
+                gh pr close "$number" --delete-branch --comment "Superseded by #${url##*/}."
+              fi
+            done
