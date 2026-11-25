@@ -1,0 +1,7 @@
+name: Workflow scripts
+description: Sets WORKFLOWS_DIR to this repository at the commit being run
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: echo "WORKFLOWS_DIR=$(cd "$GITHUB_ACTION_PATH/../../.." && pwd)" >> "$GITHUB_ENV"

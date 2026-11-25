@@ -1,0 +1,31 @@
+name: Arch package update
+
+# Update workflow for a PKGBUILD repo, see README.md
+on:
+  workflow_call:
+    inputs:
+      body:
+        description: Pull request body. {version} is replaced with the version.
+        type: string
+        default: ''
+      ci-workflow:
+        description: Workflow to run on the new branch
+        type: string
+        default: ci.yml
+
+jobs:
+  update:
+    uses: $/.github/workflows/update.yml
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    with:
+      container: archlinux:base-devel
+      setup: pacman -Syu --noconfirm --needed git github-cli
+      check: '"$WORKFLOWS_DIR"/arch/check.sh'
+      pin: .github/scripts/upstream.sh sums "$VERSION"
+      apply: '"$WORKFLOWS_DIR"/arch/bump.sh "$VERSION" "$PIN"'
+      validate: '"$WORKFLOWS_DIR"/arch/validate.sh'
+      body: ${{ inputs.body }}
+      ci-workflow: ${{ inputs.ci-workflow }}

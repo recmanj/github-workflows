@@ -1,0 +1,219 @@
+name: Update
+
+on:
+  workflow_call:
+    inputs:
+      check:
+        description: Command that prints the version to update to, or nothing when up to date
+        type: string
+        required: true
+      pin:
+        description: >-
+          Command that prints data about $VERSION, such as checksums, that apply
+          gets as $PIN in both later jobs
+        type: string
+        default: ''
+      apply:
+        description: >-
+          Command that updates the files to $VERSION. It runs with a write token,
+          so it must not run anything from the new version.
+        type: string
+        required: true
+      validate:
+        description: Command that tests the update after apply, with a read-only token
+        type: string
+        default: ''
+      setup:
+        description: Command run at the start of every job, before the checkout
+        type: string
+        default: ''
+      runs-on:
+        type: string
+        default: ubuntu-latest
+      container:
+        description: Image to run every job in
+        type: string
+        default: ''
+      timeout-minutes:
+        description: Timeout of the validate job
+        type: number
+        default: 60
+      title:
+        description: Commit message and pull request title. {version} is replaced with the version.
+        type: string
+        default: Update to {version}
+      body:
+        description: Pull request body. {version} is replaced with the version.
+        type: string
+        default: ''
+      ci-workflow:
+        description: >-
+          Workflow to run on the new branch, since pull requests opened with
+          GITHUB_TOKEN do not trigger workflows
+        type: string
+        default: ''
+
+defaults:
+  run:
+    shell: bash
+
+# validate is the only job that runs the new version, and it gets a read-only
+# token. publish starts from a fresh checkout and runs apply again. pin is
+# computed once by check and given to both, so apply can fail when upstream
+# changes between validate and publish.
+jobs:
+  check:
+    runs-on: ${{ inputs.runs-on }}
+    container: ${{ inputs.container }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      pin: ${{ steps.check.outputs.pin }}
+    steps:
+      - name: Set up
+        if: inputs.setup != ''
+        env:
+          SETUP: ${{ inputs.setup }}
+        run: eval "$SETUP"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: $/.github/actions/scripts
+
+      - name: Check for a new version
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BASE: ${{ github.ref_name }}
+          CHECK: ${{ inputs.check }}
+          PIN_COMMAND: ${{ inputs.pin }}
+        run: |
+          version=$(eval "$CHECK")
+          if [[ -z $version ]]; then
+            echo 'Up to date'
+            exit 0
+          fi
+          branch="update/$version"
+          if [[ ! $version =~ ^[0-9A-Za-z][0-9A-Za-z.+_-]*$ ]] ||
+            ! git check-ref-format --branch "$branch" > /dev/null; then
+            echo "::error::Invalid version: $version"
+            exit 1
+          fi
+
+          # A PR in any state means this version was handled. A branch without
+          # a PR is left over from a failed run and gets overwritten. Matching
+          # on owner:branch leaves out fork PRs, which anyone can open from a
+          # branch with this name.
+          if [[ -n $(gh api -X GET "repos/$GH_REPO/pulls" -f head="${GH_REPO%%/*}:$branch" \
+            -f base="$BASE" -f state=all --jq '.[].number') ]]; then
+            echo "PR for $branch already exists, skipping"
+            exit 0
+          fi
+
+          echo "Updating to $version"
+          export VERSION=$version
+          pin=$(eval "$PIN_COMMAND")
+          delimiter=EOF_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
+          {
+            echo "version=$version"
+            echo "pin<<$delimiter"
+            echo "$pin"
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
+
+  validate:
+    needs: check
+    if: needs.check.outputs.version != ''
+    runs-on: ${{ inputs.runs-on }}
+    container: ${{ inputs.container }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    steps:
+      - name: Set up
+        if: inputs.setup != ''
+        env:
+          SETUP: ${{ inputs.setup }}
+        run: eval "$SETUP"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: $/.github/actions/scripts
+
+      - name: Apply
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+          PIN: ${{ needs.check.outputs.pin }}
+          APPLY: ${{ inputs.apply }}
+        run: eval "$APPLY"
+
+      - name: Validate
+        if: inputs.validate != ''
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+          VALIDATE: ${{ inputs.validate }}
+        run: eval "$VALIDATE"
+
+  publish:
+    needs: [check, validate]
+    runs-on: ${{ inputs.runs-on }}
+    container: ${{ inputs.container }}
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - name: Set up
+        if: inputs.setup != ''
+        env:
+          SETUP: ${{ inputs.setup }}
+        run: eval "$SETUP"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: $/.github/actions/scripts
+
+      - name: Apply
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+          PIN: ${{ needs.check.outputs.pin }}
+          APPLY: ${{ inputs.apply }}
+        run: eval "$APPLY"
+
+      - name: Open pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BASE: ${{ github.ref_name }}
+          VERSION: ${{ needs.check.outputs.version }}
+          TITLE: ${{ inputs.title }}
+          BODY: ${{ inputs.body }}
+          CI_WORKFLOW: ${{ inputs.ci-workflow }}
+        run: |
+          branch="update/$VERSION"
+          title=${TITLE//'{version}'/$VERSION}
+          body=${BODY//'{version}'/$VERSION}
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$branch"
+          git add --update
+          if git diff --cached --quiet; then
+            echo '::error::apply changed no tracked files'
+            exit 1
+          fi
+          git commit -m "$title"
+          git push --force origin "$branch"
+          gh pr create --base "$BASE" --head "$branch" --title "$title" --body "$body"
+          if [[ -n $CI_WORKFLOW ]]; then
+            gh workflow run "$CI_WORKFLOW" --ref "$branch"
+          fi
