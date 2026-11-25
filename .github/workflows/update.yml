@@ -1,5 +1,6 @@
 name: Update
 
+# See docs/update.md
 on:
   workflow_call:
     inputs:
@@ -7,24 +8,16 @@ on:
         description: Command that prints the version to update to, or nothing when up to date
         type: string
         required: true
-      pin:
-        description: >-
-          Command that prints data about $VERSION, such as checksums, that apply
-          gets as $PIN in both later jobs
-        type: string
-        default: ''
       apply:
-        description: >-
-          Command that updates the files to $VERSION. It runs with a write token,
-          so it must not run anything from the new version.
+        description: Command that updates the files to $VERSION. It must not run anything from the new version.
         type: string
         required: true
       validate:
-        description: Command that tests the update after apply, with a read-only token
+        description: Command that tests the change, with a read-only token
         type: string
         default: ''
       setup:
-        description: Command run at the start of every job, before the checkout
+        description: Command run at the start of every job, before the checkout. Only use it to install tools.
         type: string
         default: ''
       runs-on:
@@ -59,21 +52,21 @@ defaults:
   run:
     shell: bash
 
-# validate is the only job that runs the new version, and it gets a read-only
-# token. publish starts from a fresh checkout and runs apply again. pin is
-# computed once by check and given to both, so apply can fail when upstream
-# changes between validate and publish.
+# check runs apply once and passes the diff to the other jobs as an output.
+# validate tests that diff, and is the only job that runs the new version.
+# publish commits the same diff, and is the only job with a write token. It runs
+# no command from the caller other than setup.
 jobs:
   check:
     runs-on: ${{ inputs.runs-on }}
     container: ${{ inputs.container }} # zizmor: ignore[unpinned-images] the caller pins it
-    timeout-minutes: 15
+    timeout-minutes: 30
     permissions:
       contents: read
       pull-requests: read # look up existing update PRs
     outputs:
       version: ${{ steps.check.outputs.version }}
-      pin: ${{ steps.check.outputs.pin }}
+      patch: ${{ steps.diff.outputs.patch }}
     steps:
       - name: Set up
         if: inputs.setup != ''
@@ -94,8 +87,8 @@ jobs:
           GH_REPO: ${{ github.repository }}
           BASE: ${{ github.ref_name }}
           CHECK: ${{ inputs.check }}
-          PIN_COMMAND: ${{ inputs.pin }}
         run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           version=$(eval "$CHECK")
           if [[ -z $version ]]; then
             echo 'Up to date'
@@ -119,15 +112,33 @@ jobs:
           fi
 
           echo "Updating to $version"
-          export VERSION=$version
-          pin=$(eval "$PIN_COMMAND")
-          delimiter=EOF_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
-          {
-            echo "version=$version"
-            echo "pin<<$delimiter"
-            echo "$pin"
-            echo "$delimiter"
-          } >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Apply
+        if: steps.check.outputs.version != ''
+        env:
+          VERSION: ${{ steps.check.outputs.version }}
+          APPLY: ${{ inputs.apply }}
+        run: eval "$APPLY"
+
+      - name: Save the diff
+        id: diff
+        if: steps.check.outputs.version != ''
+        run: |
+          git add --update
+          if git diff --cached --quiet; then
+            echo '::error::apply changed no tracked files'
+            exit 1
+          fi
+          git diff --cached --stat
+          # Compressed, as the later jobs get it in an environment variable,
+          # which Linux limits to 128 KiB
+          patch=$(git diff --cached --binary | gzip -9n | base64 -w0)
+          if (( ${#patch} > 100000 )); then
+            echo '::error::The diff is too large to pass to the other jobs'
+            exit 1
+          fi
+          echo "patch=$patch" >> "$GITHUB_OUTPUT"
 
   validate:
     needs: check
@@ -150,12 +161,12 @@ jobs:
 
       - uses: $/.github/actions/scripts
 
-      - name: Apply
+      - name: Apply the diff
         env:
-          VERSION: ${{ needs.check.outputs.version }}
-          PIN: ${{ needs.check.outputs.pin }}
-          APPLY: ${{ inputs.apply }}
-        run: eval "$APPLY"
+          PATCH: ${{ needs.check.outputs.patch }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          base64 -d <<< "$PATCH" | gunzip | git apply --index
 
       - name: Validate
         if: inputs.validate != ''
@@ -180,19 +191,9 @@ jobs:
           SETUP: ${{ inputs.setup }}
         run: eval "$SETUP"
 
-      # apply runs without the token, which only the next step gets
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      - uses: $/.github/actions/scripts
-
-      - name: Apply
-        env:
-          VERSION: ${{ needs.check.outputs.version }}
-          PIN: ${{ needs.check.outputs.pin }}
-          APPLY: ${{ inputs.apply }}
-        run: eval "$APPLY"
 
       - name: Open pull request
         env:
@@ -200,6 +201,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           BASE: ${{ github.ref_name }}
           VERSION: ${{ needs.check.outputs.version }}
+          PATCH: ${{ needs.check.outputs.patch }}
           TITLE: ${{ inputs.title }}
           BODY: ${{ inputs.body }}
           CI_WORKFLOW: ${{ inputs.ci-workflow }}
@@ -211,11 +213,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git switch -c "$branch"
-          git add --update
-          if git diff --cached --quiet; then
-            echo '::error::apply changed no tracked files'
-            exit 1
-          fi
+          base64 -d <<< "$PATCH" | gunzip | git apply --index
           git commit -m "$title"
           auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
           echo "::add-mask::$auth"

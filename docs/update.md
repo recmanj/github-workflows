@@ -30,31 +30,31 @@ jobs:
 ## Jobs
 
 `check` runs the `check` command. If it prints a version and no pull request
-from `update/<version>` exists yet, in any state, it runs `pin`.
+from `update/<version>` exists yet, in any state, it runs `apply` and saves the
+diff of the tracked files.
 
-`validate` runs `apply` and then `validate` on a fresh checkout, with a
+`validate` applies that diff to a fresh checkout and runs `validate` with a
 read-only token. It is the only job that should run anything from the new
 version.
 
-`publish` runs `apply` on another fresh checkout, commits the changed tracked
-files to `update/<version>` and opens a pull request against the branch the
-workflow ran on. The token is only used after `apply`, but `apply` must still
-not run anything from the new version, since that could change what gets
-committed.
+`publish` applies the same diff to another fresh checkout, commits it to
+`update/<version>` and opens a pull request against the branch the workflow ran
+on. It is the only job with a write token, and it runs no command from the
+caller other than `setup`.
 
-`pin` is how `publish` makes sure it commits what `validate` tested: `check`
-computes it once, both jobs get it, and `apply` should fail when upstream no
-longer matches it.
+So the pull request contains exactly what `validate` tested. `apply` should
+still not run anything from the new version, as `check` has a token, if only a
+read-only one, and the diff it saves is what gets published. The diff is passed between the jobs compressed in a job output,
+and has to stay under about 75 KB after gzip.
 
 ## Inputs
 
 | Input | Default | |
 | --- | --- | --- |
 | `check` | required | Prints the version to update to, or nothing when up to date. |
-| `pin` | | Prints data about `$VERSION` that must not change before the pull request is opened, such as checksums. |
 | `apply` | required | Updates the files to `$VERSION`. |
 | `validate` | | Tests the result of `apply`. |
-| `setup` | | Runs at the start of every job, before the checkout. |
+| `setup` | | Runs at the start of every job, before the checkout. It runs in the job with the write token, so only use it to install tools. |
 | `runs-on` | `ubuntu-latest` | |
 | `container` | | Image for every job. Pin it by digest. |
 | `timeout-minutes` | `60` | Timeout of the `validate` job. |
@@ -68,8 +68,7 @@ The commands run with bash in the caller's checkout. They get these variables:
 
 | Variable | |
 | --- | --- |
-| `VERSION` | The new version, in `pin`, `apply` and `validate`. |
-| `PIN` | The output of `pin`, in `apply`. |
+| `VERSION` | The new version, in `apply` and `validate`. |
 | `WORKFLOWS_DIR` | This repository at the commit being run, in every command except `setup`. |
 
 ## Permissions

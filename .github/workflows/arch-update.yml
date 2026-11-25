@@ -29,8 +29,7 @@ jobs:
         pacman -Sy --noconfirm --needed archlinux-keyring &&
         pacman -Su --noconfirm --needed git github-cli
       check: '"$WORKFLOWS_DIR"/arch/check.sh'
-      pin: .github/scripts/upstream.sh sums "$VERSION"
-      apply: '"$WORKFLOWS_DIR"/arch/bump.sh "$VERSION" "$PIN"'
+      apply: '"$WORKFLOWS_DIR"/arch/bump.sh "$VERSION"'
       validate: '"$WORKFLOWS_DIR"/arch/validate.sh'
       body: ${{ inputs.body }}
       ci-workflow: ${{ inputs.ci-workflow }}
