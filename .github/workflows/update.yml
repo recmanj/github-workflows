@@ -225,12 +225,15 @@ jobs:
             gh workflow run "$CI_WORKFLOW" --ref "$branch"
           fi
 
-          # Close the update PRs this one replaces, like Dependabot does
-          gh pr list --base "$BASE" --state open --json number,headRefName,isCrossRepository \
-            --jq '.[] | select(.isCrossRepository | not) | select(.headRefName | startswith("update/"))
-              | "\(.number) \(.headRefName)"' |
+          # Close the update PRs this one replaces, like Dependabot does. Only
+          # PRs this workflow opened, so other update/ branches are left alone.
+          gh pr list --base "$BASE" --state open --limit 1000 \
+            --json number,headRefName,isCrossRepository,author \
+            --jq '.[] | select(.isCrossRepository | not) | select(.author.login == "app/github-actions")
+              | select(.headRefName | startswith("update/")) | "\(.number) \(.headRefName)"' |
             while read -r number head; do
-              if [[ $head != "$branch" ]]; then
-                gh pr close "$number" --delete-branch --comment "Superseded by #${url##*/}."
+              if [[ $head != "$branch" ]] &&
+                ! gh pr close "$number" --delete-branch --comment "Superseded by #${url##*/}."; then
+                echo "::warning::Failed to close superseded PR #$number"
               fi
             done
